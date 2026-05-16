@@ -1,0 +1,85 @@
+blueprint:
+  name: Motion-activated Light with Illuminance Sensor
+  description: Turn on a light or group of lights when motion is detected and the room's light level is below a certain threshold.
+  domain: automation
+  source_url: https://github.com/amcginniss/hass-blueprints/blob/main/automations/motion_light_illuminance.yaml
+  input:
+    motion_sensor:
+      name: Motion/Presence Sensor
+      description: The binary sensor that detects if someone is nearby.
+      selector:
+        entity:
+          domain: binary_sensor
+    illuminance_sensor:
+      name: Illuminance Sensor
+      description: The sensor that measures the current light levels (in lux).
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+    illuminance_threshold:
+      name: Illuminance Threshold (Lux)
+      description: The lights will only turn on if the current light level is below this value.
+      default: 50
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 5
+          unit_of_measurement: lx
+          mode: slider
+    target_light:
+      name: Lights
+      description: The light or group of lights to turn on.
+      selector:
+        target:
+          entity:
+            domain: light
+    wait_time:
+      name: Wait time (Seconds)
+      description: The amount of time to leave the lights on after the last motion is detected before turning them off.
+      default: 120
+      selector:
+        number:
+          min: 0
+          max: 3600
+          step: 10
+          unit_of_measurement: seconds
+          mode: slider
+
+# Using restart mode ensures the wait timer resets if motion is detected again while the lights are already on
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensor
+    to: "on"
+    id: "motion_detected"
+  - platform: state
+    entity_id: !input motion_sensor
+    to: "off"
+    for:
+      seconds: !input wait_time
+    id: "motion_cleared"
+
+action:
+  - choose:
+      # Action 1: Turn on the lights if motion is detected AND the room is dark enough
+      - conditions:
+          - condition: trigger
+            id: "motion_detected"
+          - condition: numeric_state
+            entity_id: !input illuminance_sensor
+            below: !input illuminance_threshold
+        sequence:
+          - service: light.turn_on
+            target: !input target_light
+
+      # Action 2: Turn off the lights when motion has been clear for the set wait time
+      - conditions:
+          - condition: trigger
+            id: "motion_cleared"
+        sequence:
+          - service: light.turn_off
+            target: !input target_light
